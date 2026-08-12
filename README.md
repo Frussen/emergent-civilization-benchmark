@@ -15,11 +15,11 @@ project foundation; simulation mechanics have not been implemented.
 
 ## Development setup
 
-ECB requires Python 3.11 or newer. Create and activate a virtual environment,
+ECB requires Python 3.12 or newer. Create and activate a virtual environment,
 then install the package and development dependencies:
 
 ```sh
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
