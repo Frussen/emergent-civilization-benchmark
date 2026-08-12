@@ -21,7 +21,7 @@ jobs:
           cache: pip
 
       - name: Install project and development dependencies
-        run: python -m pip install -e ".[dev,analysis]"
+        run: python -m pip install -e ".[dev,analysis,visual]"
 
       - name: Run tests
         run: make test

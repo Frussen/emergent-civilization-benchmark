@@ -22,9 +22,10 @@ class VisualController:
 
     M1.0a has no scheduler: playing and speed are presentation state only.
     ``step`` delegates even after extinction because canonical ``Simulation.step``
-    remains legal. A future automatic scheduler must detect extinction and stop or
-    pause its own loop. Future concurrent server code must also serialize calls to
-    ``step`` and ``current_snapshot`` through one synchronization boundary.
+    remains legal. The visual runtime's automatic scheduler detects extinction and
+    pauses its own loop. Concurrent server code must also serialize calls to
+    ``advance``, ``step``, and ``current_snapshot`` through one synchronization
+    boundary; the visual runtime supplies that boundary.
     """
 
     __slots__ = ("_is_playing", "_simulation", "_speed")
@@ -44,14 +45,28 @@ class VisualController:
     def speed(self) -> VisualSpeed:
         return self._speed
 
+    @property
+    def tick(self) -> int:
+        """Return the current canonical simulation tick."""
+        return self._simulation.world.tick
+
+    @property
+    def is_extinct(self) -> bool:
+        """Return whether the authoritative population has no living agents."""
+        return not any(agent.alive for agent in self._simulation.world.agents.values())
+
     def current_snapshot(self) -> VisualSnapshot:
         """Return a pure projection of the current authoritative state."""
         return VisualSnapshot.from_simulation(self._simulation)
 
     def step(self) -> VisualSnapshot:
         """Execute exactly one canonical simulation tick and snapshot its result."""
-        self._simulation.step()
+        self.advance()
         return self.current_snapshot()
+
+    def advance(self) -> None:
+        """Execute exactly one canonical tick without constructing a snapshot."""
+        self._simulation.step()
 
     def play(self) -> None:
         """Enable future scheduler-driven advancement without advancing now."""

@@ -152,9 +152,10 @@ class VisualSnapshot:
     def from_simulation(cls, simulation: Simulation) -> VisualSnapshot:
         """Capture the current state without advancing or mutating ``simulation``.
 
-        This operation is synchronous but not independently thread-safe. Future
-        concurrent scheduler/server code must serialize snapshot capture and
-        ``Simulation.step`` through one synchronization boundary.
+        This operation is synchronous but not independently thread-safe. Callers
+        must serialize snapshot capture and ``Simulation.step`` through one
+        synchronization boundary; ``VisualRuntime`` supplies that boundary for
+        the visual server.
         """
         world = simulation.world
         agents = tuple(

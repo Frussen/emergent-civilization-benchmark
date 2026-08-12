@@ -82,6 +82,23 @@ def test_step_advances_exactly_one_canonical_tick() -> None:
     assert len(simulation.log.metrics) == 1
 
 
+def test_advance_executes_one_tick_without_snapshot_capture(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    simulation = simulation_for_policy("random")
+    controller = VisualController(simulation)
+
+    def fail_snapshot_capture(_simulation):  # type: ignore[no-untyped-def]
+        raise AssertionError("advance must not capture a snapshot")
+
+    monkeypatch.setattr(
+        "ecb.visual.controller.VisualSnapshot.from_simulation", fail_snapshot_capture
+    )
+
+    controller.advance()
+
+    assert simulation.world.tick == 1
+    assert len(simulation.log.metrics) == 1
+
+
 @pytest.mark.parametrize("policy_name", ["random", "oracle"])
 def test_visual_and_headless_hash_trajectories_match(policy_name: str) -> None:
     direct = simulation_for_policy(policy_name)
