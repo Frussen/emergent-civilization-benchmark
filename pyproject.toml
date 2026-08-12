@@ -15,6 +15,9 @@ dependencies = []
 ecb-run = "ecb.runner:main"
 
 [project.optional-dependencies]
+analysis = [
+    "matplotlib>=3.9",
+]
 dev = [
     "hypothesis>=6",
     "pytest>=8",
