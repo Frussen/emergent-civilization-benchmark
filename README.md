@@ -10,8 +10,11 @@ production-ready system.
 
 ## Status
 
-MVP v0.1 design/bootstrap. The repository currently provides only the Python
-project foundation; simulation mechanics have not been implemented.
+Milestone M0 provides a framework-independent deterministic simulation kernel:
+a configurable rectangular grid, renewable food and water, fixed-cohort agents,
+local observations, movement, harvesting, metabolism, death, seeded policies,
+replay hashing, and viability calibration. Later social, learning, integration,
+and visualization milestones are intentionally not implemented yet.
 
 ## Development setup
 
