@@ -215,6 +215,27 @@ Invariant:
 
 Resources are represented as divisible real-valued quantities.
 
+### Baseline M0 resource initialization
+
+M0 uses a spatially homogeneous baseline resource field.
+
+For every grid cell:
+
+- food capacity: 20.0
+- food initial stock: 20.0
+- food regeneration rate: 1.0
+
+- water capacity: 20.0
+- water initial stock: 20.0
+- water regeneration rate: 1.0
+
+All cells use identical baseline values.
+
+Spatially heterogeneous or procedurally generated resource distributions are
+explicitly deferred to later experimental configurations.
+
+These values are calibration defaults, not claims of ecological realism.
+
 ---
 
 ## 8. Resource regeneration
@@ -389,6 +410,36 @@ No profession variable exists.
 
 If persistent specialization later appears, it must result from agent behavior rather than a predefined occupational role.
 
+### Baseline M0 agent initialization
+
+The baseline M0 population contains 256 agents.
+
+Each agent starts with:
+
+- health: 100
+- food inventory: 20.0
+- water inventory: 20.0
+- food productivity: 2.0
+- water productivity: 2.0
+
+Productivity is homogeneous in M0.
+
+Heterogeneous productivity distributions are deferred to later experiments on
+comparative advantage and specialization.
+
+---
+
+### Initial agent placement
+
+Each initial agent position is sampled independently and uniformly across all
+valid grid cells using the project-controlled seeded RNG.
+
+Sampling is with replacement.
+
+Therefore multiple agents may initially occupy the same cell.
+
+Agent IDs or creation order must not affect the position distribution.
+
 ---
 
 ## 15. Observation model
@@ -494,23 +545,54 @@ Within-lifetime learning must remain distinct from reproduction and evolutionary
 
 ---
 
-## 18. Viability requirement
+### Survival control policy
 
-ECB must not guarantee survival.
+M0 includes a test-only OracleSurvivalPolicy used to verify ecological
+viability.
 
-Death must remain a possible consequence of poor strategy, scarcity or competition.
+Despite its name, this policy receives only the standard Observation and has
+no direct access to WorldState or hidden information.
 
-However, the baseline ecology must make long-term survival physically achievable by a sufficiently capable policy.
+At each decision point:
 
-The project must therefore include a non-benchmark control policy such as:
+1. Compute expected remaining survival time for food and water from current
+   inventory and metabolic need.
+2. Select the resource with the lower remaining survival time as the target.
+3. If the current cell contains at least one full harvest amount of the target
+   resource, HARVEST it.
+4. Otherwise select the observed cell containing the greatest stock of the
+   target resource.
+5. Move one step toward that cell.
+6. Ties are resolved first by shortest distance and then by canonical
+   coordinate order.
+7. If no observed cell contains the target resource, WAIT.
 
-`OracleSurvivalPolicy`
+OracleSurvivalPolicy is not a benchmark participant and must not be used as
+evidence of emergent intelligence.
 
-Its purpose is not to participate in scientific comparisons but to verify that the configured environment is survivable.
+### Baseline viability criterion
 
-A baseline configuration is invalid if even a strong survival-oriented control policy predictably drives the population to extinction.
+For M0 CI testing, the baseline configuration must be simulated for 2,000
+ticks using OracleSurvivalPolicy for every agent.
 
-The calibration suite should also verify that weaker policies perform meaningfully worse, ensuring that strategy matters.
+Across seeds:
+
+- 0
+- 1
+- 2
+
+the population survival fraction at tick 2,000 must be at least 0.95 for each
+run.
+
+Failure indicates either:
+
+- an implementation bug,
+- an internally inconsistent baseline,
+- or a baseline ecology that requires scientific recalibration.
+
+This criterion is a software/scientific sanity check, not a benchmark score.
+
+Longer 10,000+ tick viability experiments may be run outside the fast CI suite.
 
 ---
 
