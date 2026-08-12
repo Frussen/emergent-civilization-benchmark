@@ -13,6 +13,7 @@ dependencies = []
 
 [project.scripts]
 ecb-run = "ecb.runner:main"
+ecb-visual = "ecb.visual.cli:main"
 
 [project.optional-dependencies]
 analysis = [
@@ -22,6 +23,7 @@ visual = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "uvicorn>=0.30",
+    "websockets>=15",
 ]
 dev = [
     "hypothesis>=6",
