@@ -9,7 +9,7 @@ from typing import cast
 from ecb.visual.controller import VisualSpeed
 from ecb.visual.snapshot import JsonValue, VisualSnapshot
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 class ProtocolError(ValueError):
@@ -47,7 +47,7 @@ type EncodedServerMessage = str
 
 
 def parse_client_message(value: object) -> ClientCommand:
-    """Validate and parse one protocol-v1 client command."""
+    """Validate and parse one protocol-v2 client command."""
     if type(value) is not dict:
         raise ProtocolError("invalid_message", "message must be a JSON object")
     if any(type(key) is not str for key in value):

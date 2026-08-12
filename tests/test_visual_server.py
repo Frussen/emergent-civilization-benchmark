@@ -77,25 +77,25 @@ def test_websocket_controls_delegate_to_the_shared_runtime() -> None:
         with client.websocket_connect("/ws") as websocket:
             receive_initial_state(websocket)
 
-            websocket.send_json({"version": 1, "type": "play"})
+            websocket.send_json({"version": 2, "type": "play"})
             status = websocket.receive_json()
             assert status["type"] == "status"
             assert status["playing"] is True
             assert simulation.world.tick == 0
 
-            websocket.send_json({"version": 1, "type": "set_speed", "speed": "20x"})
+            websocket.send_json({"version": 2, "type": "set_speed", "speed": "20x"})
             status = websocket.receive_json()
             assert status["type"] == "status"
             assert status["speed"] == "20x"
             assert simulation.world.tick == 0
 
-            websocket.send_json({"version": 1, "type": "pause"})
+            websocket.send_json({"version": 2, "type": "pause"})
             status = websocket.receive_json()
             assert status["type"] == "status"
             assert status["playing"] is False
             assert simulation.world.tick == 0
 
-            websocket.send_json({"version": 1, "type": "step"})
+            websocket.send_json({"version": 2, "type": "step"})
             snapshot = websocket.receive_json()
             assert snapshot["type"] == "snapshot"
             assert snapshot["snapshot"]["tick"] == 1
@@ -114,10 +114,10 @@ def test_protocol_errors_do_not_mutate_scientific_state() -> None:
     malformed_messages = [
         "not-json",
         "[]",
-        '{"version": 2, "type": "play"}',
-        '{"version": 1, "type": "unknown"}',
-        '{"version": 1, "type": "set_speed", "speed": "fast"}',
-        '{"version": 1, "type": "step", "extra": true}',
+        '{"version": 1, "type": "play"}',
+        '{"version": 2, "type": "unknown"}',
+        '{"version": 2, "type": "set_speed", "speed": "fast"}',
+        '{"version": 2, "type": "step", "extra": true}',
     ]
 
     with TestClient(create_app(runtime, start_scheduler=False)) as client:
@@ -127,7 +127,7 @@ def test_protocol_errors_do_not_mutate_scientific_state() -> None:
                 websocket.send_text(message)
                 error = websocket.receive_json()
                 assert error["type"] == "error"
-                assert error["version"] == 1
+                assert error["version"] == 2
                 assert simulation.world_state_hash() == initial_world_hash
                 assert simulation.execution_state_hash() == initial_execution_hash
                 assert simulation.log == initial_log
@@ -146,7 +146,7 @@ def test_two_clients_observe_one_authoritative_simulation() -> None:
             first_initial, _ = receive_initial_state(first)
             assert first_initial["snapshot"]["tick"] == 0
 
-            first.send_json({"version": 1, "type": "step"})
+            first.send_json({"version": 2, "type": "step"})
             tick_one = first.receive_json()
             assert tick_one["snapshot"]["tick"] == 1
             first_tick_one_status = first.receive_json()
@@ -158,7 +158,7 @@ def test_two_clients_observe_one_authoritative_simulation() -> None:
                 assert second_status["tick"] == 1
                 assert runtime.connection_count == 2
 
-                first.send_json({"version": 1, "type": "step"})
+                first.send_json({"version": 2, "type": "step"})
                 first_snapshot = first.receive_json()
                 second_snapshot = second.receive_json()
                 assert first_snapshot["type"] == second_snapshot["type"] == "snapshot"
@@ -189,7 +189,7 @@ def test_binary_message_returns_protocol_error_and_connection_remains_usable() -
             assert simulation.execution_state_hash() == initial_execution_hash
             assert simulation.log == initial_log
 
-            websocket.send_json({"version": 1, "type": "step"})
+            websocket.send_json({"version": 2, "type": "step"})
             snapshot = websocket.receive_json()
             status = websocket.receive_json()
             assert snapshot["type"] == "snapshot"

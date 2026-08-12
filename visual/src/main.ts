@@ -1,6 +1,7 @@
 import "./styles.css";
 
 import { VisualConnection } from "./connection";
+import type { OverlayMode } from "./overlays";
 import { command, speedCommand, type ServerMessage, type VisualSpeed } from "./protocol";
 import { WorldRenderer } from "./renderer";
 import { VisualUI } from "./ui";
@@ -12,7 +13,7 @@ const websocketUrl =
   import.meta.env.VITE_ECB_WS_URL ??
   `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:8000/ws`;
 
-const renderer = new WorldRenderer();
+let renderer: WorldRenderer;
 let connection: VisualConnection;
 const send = (message: ReturnType<typeof command> | ReturnType<typeof speedCommand>) => {
   if (!connection.send(message)) ui.showError("Command was not sent: WebSocket is disconnected.");
@@ -24,10 +25,15 @@ const ui = new VisualUI(
     pause: () => send(command("pause")),
     step: () => send(command("step")),
     setSpeed: (speed: VisualSpeed) => send(speedCommand(speed)),
+    setMode: (mode: OverlayMode) => renderer.setMode(mode),
   },
   websocketUrl,
 );
 
+renderer = new WorldRenderer(({ agentId, cell }) => {
+  renderer.setSelectedAgent(agentId);
+  ui.setInspection(agentId, cell);
+});
 await renderer.initialize(ui.viewport);
 
 function handleMessage(message: ServerMessage): void {

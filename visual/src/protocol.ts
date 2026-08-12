@@ -1,7 +1,16 @@
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 export type VisualSpeed = "1x" | "5x" | "20x" | "max";
+export type Direction =
+  | "north"
+  | "north-east"
+  | "east"
+  | "south-east"
+  | "south"
+  | "south-west"
+  | "west"
+  | "north-west";
 
 export interface AgentSnapshot {
   id: string;
@@ -17,8 +26,41 @@ export interface CellSnapshot {
   x: number;
   y: number;
   food_stock: number;
+  food_capacity: number;
   water_stock: number;
+  water_capacity: number;
 }
+
+export interface HarvestVisualEvent {
+  event_type: "harvest";
+  tick: number;
+  agent_id: string;
+  resource: "food" | "water";
+  amount: number;
+  x: number;
+  y: number;
+}
+
+export interface DeathVisualEvent {
+  event_type: "death";
+  tick: number;
+  agent_id: string;
+}
+
+export interface InvalidActionVisualEvent {
+  event_type: "invalid_action";
+  tick: number;
+  agent_id: string;
+  action_kind: "wait" | "move" | "harvest";
+  direction: Direction | null;
+  resource: "food" | "water" | null;
+  reason: string;
+}
+
+export type VisualEvent =
+  | HarvestVisualEvent
+  | DeathVisualEvent
+  | InvalidActionVisualEvent;
 
 export interface VisualMetrics {
   alive_agents: number;
@@ -30,10 +72,12 @@ export interface VisualMetrics {
 export interface VisualSnapshot {
   tick: number;
   world_state_hash: string;
+  health_reference: number;
   world: { width: number; height: number };
   agents: AgentSnapshot[];
   cells: CellSnapshot[];
   metrics: VisualMetrics;
+  recent_events: VisualEvent[];
 }
 
 export interface SnapshotMessage {
@@ -108,7 +152,16 @@ function parseSnapshotMessage(value: RecordValue): SnapshotMessage {
   const raw = requireRecord(value.snapshot, "snapshot");
   requireFields(
     raw,
-    ["tick", "world_state_hash", "world", "agents", "cells", "metrics"],
+    [
+      "tick",
+      "world_state_hash",
+      "health_reference",
+      "world",
+      "agents",
+      "cells",
+      "metrics",
+      "recent_events",
+    ],
     "snapshot",
   );
   const world = requireRecord(raw.world, "snapshot.world");
@@ -122,6 +175,15 @@ function parseSnapshotMessage(value: RecordValue): SnapshotMessage {
     parseCell(cell, index, width, height),
   );
   validateSnapshotCollections(agents, cells, width, height);
+  const recentEvents = requireArray(raw.recent_events, "snapshot.recent_events").map(
+    (event, index) => parseVisualEvent(event, index, width, height),
+  );
+  if (recentEvents.length > 75) {
+    throw new ProtocolParseError("snapshot.recent_events exceeds the tail limit.");
+  }
+  if (recentEvents.some((event, index) => index > 0 && event.tick < recentEvents[index - 1]!.tick)) {
+    throw new ProtocolParseError("snapshot.recent_events must be chronological.");
+  }
 
   const metrics = requireRecord(raw.metrics, "snapshot.metrics");
   requireFields(
@@ -142,6 +204,10 @@ function parseSnapshotMessage(value: RecordValue): SnapshotMessage {
       world_state_hash: requireString(
         raw.world_state_hash,
         "snapshot.world_state_hash",
+      ),
+      health_reference: requireNonnegativeNumber(
+        raw.health_reference,
+        "snapshot.health_reference",
       ),
       world: { width, height },
       agents,
@@ -167,6 +233,7 @@ function parseSnapshotMessage(value: RecordValue): SnapshotMessage {
           "snapshot.metrics.total_world_water",
         ),
       },
+      recent_events: recentEvents,
     },
   };
 }
@@ -214,18 +281,121 @@ function parseCell(
 ): CellSnapshot {
   const path = `snapshot.cells[${index}]`;
   const cell = requireRecord(value, path);
-  requireFields(cell, ["x", "y", "food_stock", "water_stock"], path);
+  requireFields(
+    cell,
+    ["x", "y", "food_stock", "food_capacity", "water_stock", "water_capacity"],
+    path,
+  );
   const x = requireNonnegativeInteger(cell.x, `${path}.x`);
   const y = requireNonnegativeInteger(cell.y, `${path}.y`);
   if (x >= width || y >= height) {
     throw new ProtocolParseError(`${path} is outside world bounds.`);
   }
-  return {
+  const result = {
     x,
     y,
-    food_stock: requireNumber(cell.food_stock, `${path}.food_stock`),
-    water_stock: requireNumber(cell.water_stock, `${path}.water_stock`),
+    food_stock: requireNonnegativeNumber(cell.food_stock, `${path}.food_stock`),
+    food_capacity: requireNonnegativeNumber(
+      cell.food_capacity,
+      `${path}.food_capacity`,
+    ),
+    water_stock: requireNonnegativeNumber(cell.water_stock, `${path}.water_stock`),
+    water_capacity: requireNonnegativeNumber(
+      cell.water_capacity,
+      `${path}.water_capacity`,
+    ),
   };
+  if (result.food_stock > result.food_capacity || result.water_stock > result.water_capacity) {
+    throw new ProtocolParseError(`${path} resource stock exceeds capacity.`);
+  }
+  return result;
+}
+
+function parseVisualEvent(
+  value: unknown,
+  index: number,
+  width: number,
+  height: number,
+): VisualEvent {
+  const path = `snapshot.recent_events[${index}]`;
+  const event = requireRecord(value, path);
+  const eventType = requireString(event.event_type, `${path}.event_type`);
+  if (eventType === "harvest") {
+    requireFields(event, ["event_type", "tick", "agent_id", "resource", "amount", "x", "y"], path);
+    const resource = requireResource(event.resource, `${path}.resource`);
+    const x = requireNonnegativeInteger(event.x, `${path}.x`);
+    const y = requireNonnegativeInteger(event.y, `${path}.y`);
+    if (x >= width || y >= height) {
+      throw new ProtocolParseError(`${path} is outside world bounds.`);
+    }
+    return {
+      event_type: "harvest",
+      tick: requireNonnegativeInteger(event.tick, `${path}.tick`),
+      agent_id: requireString(event.agent_id, `${path}.agent_id`),
+      resource,
+      amount: requireNonnegativeNumber(event.amount, `${path}.amount`),
+      x,
+      y,
+    };
+  }
+  if (eventType === "death") {
+    requireFields(event, ["event_type", "tick", "agent_id"], path);
+    return {
+      event_type: "death",
+      tick: requireNonnegativeInteger(event.tick, `${path}.tick`),
+      agent_id: requireString(event.agent_id, `${path}.agent_id`),
+    };
+  }
+  if (eventType === "invalid_action") {
+    requireFields(
+      event,
+      ["event_type", "tick", "agent_id", "action_kind", "direction", "resource", "reason"],
+      path,
+    );
+    const actionKind = requireString(event.action_kind, `${path}.action_kind`);
+    if (actionKind !== "wait" && actionKind !== "move" && actionKind !== "harvest") {
+      throw new ProtocolParseError(`${path}.action_kind is unsupported.`);
+    }
+    const direction =
+      event.direction === null
+        ? null
+        : requireDirection(event.direction, `${path}.direction`);
+    const resource =
+      event.resource === null
+        ? null
+        : requireResource(event.resource, `${path}.resource`);
+    validateActionShape(actionKind, direction, resource, path);
+    return {
+      event_type: "invalid_action",
+      tick: requireNonnegativeInteger(event.tick, `${path}.tick`),
+      agent_id: requireString(event.agent_id, `${path}.agent_id`),
+      action_kind: actionKind,
+      direction,
+      resource,
+      reason: requireString(event.reason, `${path}.reason`),
+    };
+  }
+  throw new ProtocolParseError(`${path}.event_type is unsupported.`);
+}
+
+function validateActionShape(
+  actionKind: "wait" | "move" | "harvest",
+  direction: Direction | null,
+  resource: "food" | "water" | null,
+  path: string,
+): void {
+  if (actionKind === "move" && direction === null) {
+    throw new ProtocolParseError(`${path}: move requires a direction.`);
+  }
+  if (actionKind === "harvest" && resource === null) {
+    throw new ProtocolParseError(`${path}: harvest requires a resource.`);
+  }
+  if (actionKind !== "move" && direction !== null) {
+    throw new ProtocolParseError(`${path}: only move accepts a direction.`);
+  }
+  if (actionKind !== "harvest" && resource !== null) {
+    throw new ProtocolParseError(`${path}: only harvest accepts a resource.`);
+  }
 }
 
 function parseStatusMessage(value: RecordValue): StatusMessage {
@@ -320,6 +490,38 @@ function requireNumber(value: unknown, path: string): number {
     throw new ProtocolParseError(`${path} must be a finite number.`);
   }
   return value;
+}
+
+function requireNonnegativeNumber(value: unknown, path: string): number {
+  const number = requireNumber(value, path);
+  if (number < 0) throw new ProtocolParseError(`${path} must be nonnegative.`);
+  return number;
+}
+
+function requireResource(value: unknown, path: string): "food" | "water" {
+  const resource = requireString(value, path);
+  if (resource !== "food" && resource !== "water") {
+    throw new ProtocolParseError(`${path} must be food or water.`);
+  }
+  return resource;
+}
+
+function requireDirection(value: unknown, path: string): Direction {
+  const direction = requireString(value, path);
+  const directions: Direction[] = [
+    "north",
+    "north-east",
+    "east",
+    "south-east",
+    "south",
+    "south-west",
+    "west",
+    "north-west",
+  ];
+  if (!directions.includes(direction as Direction)) {
+    throw new ProtocolParseError(`${path} is unsupported.`);
+  }
+  return direction as Direction;
 }
 
 function requireNonnegativeInteger(value: unknown, path: string): number {

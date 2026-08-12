@@ -80,3 +80,12 @@ restart Terminal 1 with `ecb-visual --policy random --seed 0`.
 The browser exposes only Play, Pause, Step, and wall-clock speed commands. Drag
 the world to pan, use the mouse wheel to zoom around the pointer, and double-click
 the canvas to fit the complete world again.
+
+Agents, Food, Water, Health, and Density modes are observational overlays over
+the latest authoritative snapshot. Click an agent to follow its authoritative
+state by ID, or click a cell to inspect its resources and living occupancy. The
+recent-event feed is a bounded tail of 75 canonical events; at Max speed, skipped
+snapshots can mean older events never appear in the browser. Complete scientific
+event history remains in the canonical run log. M1.0c2 uses visual protocol
+version 2 because its required snapshot fields are not compatible with c1's
+exact-field protocol parser.

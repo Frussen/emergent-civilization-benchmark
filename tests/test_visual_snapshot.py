@@ -5,11 +5,15 @@ from decimal import Decimal
 
 import pytest
 
-from ecb import RandomPolicy, Simulation, SimulationConfig
+from ecb import Action, Direction, RandomPolicy, Resource, Simulation, SimulationConfig
+from ecb.model import DeathEvent, HarvestEvent, InvalidActionEvent
 from ecb.runner import collect_metric
 from ecb.visual import (
     VisualAgent,
     VisualCell,
+    VisualDeathEvent,
+    VisualHarvestEvent,
+    VisualInvalidActionEvent,
     VisualMetrics,
     VisualSnapshot,
     VisualWorld,
@@ -56,10 +60,15 @@ def direct_snapshot(
     *,
     agents: tuple[VisualAgent, ...] | None = None,
     cells: tuple[VisualCell, ...] | None = None,
+    recent_events: tuple[
+        VisualHarvestEvent | VisualDeathEvent | VisualInvalidActionEvent, ...
+    ]
+    | None = None,
 ) -> VisualSnapshot:
     return VisualSnapshot(
         tick=0,
         world_state_hash="test-hash",
+        health_reference=100.0,
         world=VisualWorld(width=2, height=1),
         agents=(
             (
@@ -71,13 +80,14 @@ def direct_snapshot(
         ),
         cells=(
             (
-                VisualCell(0, 0, 1.0, 1.0),
-                VisualCell(1, 0, 1.0, 1.0),
+                VisualCell(0, 0, 1.0, 2.0, 1.0, 2.0),
+                VisualCell(1, 0, 1.0, 2.0, 1.0, 2.0),
             )
             if cells is None
             else cells
         ),
         metrics=VisualMetrics(2, 100.0, 2.0, 2.0),
+        recent_events=() if recent_events is None else recent_events,
     )
 
 
@@ -109,7 +119,13 @@ def test_snapshot_reflects_authoritative_state_and_is_detached() -> None:
         visual_agent.water_inventory,
     ) == ("alpha", 2, 1, True, 42.5, 7.25, 8.5)
     assert (visual_cell.x, visual_cell.y) == (2, 1)
-    assert (visual_cell.food_stock, visual_cell.water_stock) == (3.5, 4.75)
+    assert (
+        visual_cell.food_stock,
+        visual_cell.food_capacity,
+        visual_cell.water_stock,
+        visual_cell.water_capacity,
+    ) == (3.5, 20.0, 4.75, 20.0)
+    assert snapshot.health_reference == simulation.config.initial_health
 
     agent.health = 1.0
     cell.food.stock = 1.0
@@ -173,16 +189,16 @@ def test_valid_direct_snapshot_serializes_with_standard_json_encoder() -> None:
 
 def test_snapshot_rejects_non_finite_visual_values() -> None:
     with pytest.raises(ValueError, match="cell food stock must be finite"):
-        VisualCell(x=0, y=0, food_stock=float("nan"), water_stock=1.0)
+        VisualCell(0, 0, float("nan"), 1.0, 1.0, 1.0)
 
 
 def test_snapshot_rejects_non_json_numeric_types() -> None:
     with pytest.raises(TypeError, match="built-in int or float"):
-        VisualCell(0, 0, Decimal("1.0"), 1.0)  # type: ignore[arg-type]
+        VisualCell(0, 0, Decimal("1.0"), 1.0, 1.0, 1.0)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="dimensions must be integers"):
         VisualWorld(width=True, height=1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="built-in int or float"):
-        VisualCell(0, 0, NumericSubclass(1.0), 1.0)
+        VisualCell(0, 0, NumericSubclass(1.0), 1.0, 1.0, 1.0)
 
 
 def test_snapshot_rejects_snapshot_element_subclasses() -> None:
@@ -203,8 +219,8 @@ def test_snapshot_rejects_noncanonical_agent_ordering_and_duplicate_ids() -> Non
 
 
 def test_snapshot_rejects_noncanonical_and_duplicate_cell_coordinates() -> None:
-    cell_zero = VisualCell(0, 0, 1.0, 1.0)
-    cell_one = VisualCell(1, 0, 1.0, 1.0)
+    cell_zero = VisualCell(0, 0, 1.0, 2.0, 1.0, 2.0)
+    cell_one = VisualCell(1, 0, 1.0, 2.0, 1.0, 2.0)
 
     with pytest.raises(ValueError, match=r"ordered canonically by \(x, y\)"):
         direct_snapshot(cells=(cell_one, cell_zero))
@@ -281,3 +297,176 @@ def test_mean_health_is_none_when_population_is_extinct() -> None:
 
     assert snapshot.metrics.alive_agents == 0
     assert snapshot.metrics.mean_health_alive is None
+
+
+def test_capacities_and_health_reference_are_authoritative_and_detached() -> None:
+    simulation = visual_simulation()
+    cell = simulation.world.cells[(0, 0)]
+    cell.food.capacity = 31.5
+    cell.water.capacity = 47.25
+    snapshot = VisualSnapshot.from_simulation(simulation)
+    visual_cell = snapshot.cells[0]
+
+    assert visual_cell.food_capacity == 31.5
+    assert visual_cell.water_capacity == 47.25
+    assert snapshot.health_reference == simulation.config.initial_health
+
+    cell.food.capacity = 99.0
+    cell.water.capacity = 98.0
+    assert visual_cell.food_capacity == 31.5
+    assert visual_cell.water_capacity == 47.25
+
+
+def test_recent_events_preserve_canonical_order_and_serialize_explicitly() -> None:
+    simulation = visual_simulation()
+    simulation.log.events.extend(
+        [
+            HarvestEvent(2, "alpha", Resource.FOOD, 1.5, (1, 0)),
+            InvalidActionEvent(
+                2,
+                "middle",
+                Action.move(Direction.NORTH),
+                "movement outside world boundary",
+            ),
+            DeathEvent(3, "zeta"),
+        ]
+    )
+
+    snapshot = VisualSnapshot.from_simulation(simulation)
+
+    assert snapshot.recent_events == (
+        VisualHarvestEvent(2, "alpha", "food", 1.5, 1, 0),
+        VisualInvalidActionEvent(
+            2,
+            "middle",
+            "move",
+            "north",
+            None,
+            "movement outside world boundary",
+        ),
+        VisualDeathEvent(3, "zeta"),
+    )
+    assert snapshot.to_json_data()["recent_events"] == [
+        {
+            "event_type": "harvest",
+            "tick": 2,
+            "agent_id": "alpha",
+            "resource": "food",
+            "amount": 1.5,
+            "x": 1,
+            "y": 0,
+        },
+        {
+            "event_type": "invalid_action",
+            "tick": 2,
+            "agent_id": "middle",
+            "action_kind": "move",
+            "direction": "north",
+            "resource": None,
+            "reason": "movement outside world boundary",
+        },
+        {"event_type": "death", "tick": 3, "agent_id": "zeta"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("action_kind", "direction", "resource"),
+    [
+        ("wait", None, None),
+        *(("move", direction.value, None) for direction in Direction),
+        *(("harvest", None, resource.value) for resource in Resource),
+    ],
+)
+def test_visual_invalid_action_accepts_and_serializes_every_canonical_shape(
+    action_kind: str,
+    direction: str | None,
+    resource: str | None,
+) -> None:
+    event = VisualInvalidActionEvent(
+        0,
+        "agent-a",
+        action_kind,
+        direction,
+        resource,
+        "canonical action was invalid in context",
+    )
+
+    payload = direct_snapshot(recent_events=(event,)).to_json_data()["recent_events"][0]
+
+    assert isinstance(payload, dict)
+    assert payload["action_kind"] == action_kind
+    assert payload["direction"] == direction
+    assert payload["resource"] == resource
+
+
+@pytest.mark.parametrize(
+    ("action_kind", "direction", "resource", "message"),
+    [
+        ("wait", "north", None, "only visual MOVE accepts a direction"),
+        ("wait", None, "food", "only visual HARVEST accepts a resource"),
+        ("move", None, None, "visual MOVE requires a direction"),
+        ("move", "north", "food", "only visual HARVEST accepts a resource"),
+        ("harvest", "north", "food", "only visual MOVE accepts a direction"),
+        ("harvest", None, None, "visual HARVEST requires a resource"),
+    ],
+)
+def test_visual_invalid_action_rejects_noncanonical_shape_before_serialization(
+    action_kind: str,
+    direction: str | None,
+    resource: str | None,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        VisualInvalidActionEvent(
+            0,
+            "agent-a",
+            action_kind,
+            direction,
+            resource,
+            "invalid shape",
+        )
+
+
+@pytest.mark.parametrize("amount", [0, 2, 1.5])
+def test_visual_harvest_accepts_and_serializes_nonnegative_amount(
+    amount: int | float,
+) -> None:
+    event = VisualHarvestEvent(0, "agent-a", "food", amount, 0, 0)
+
+    payload = direct_snapshot(recent_events=(event,)).to_json_data()["recent_events"][0]
+
+    assert isinstance(payload, dict)
+    assert payload["amount"] == amount
+
+
+@pytest.mark.parametrize("amount", [-1, -0.25])
+def test_visual_harvest_rejects_negative_amount(amount: int | float) -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        VisualHarvestEvent(0, "agent-a", "food", amount, 0, 0)
+
+
+@pytest.mark.parametrize("amount", [float("nan"), float("inf"), float("-inf")])
+def test_visual_harvest_rejects_nonfinite_amount(amount: float) -> None:
+    with pytest.raises(ValueError, match="must be finite"):
+        VisualHarvestEvent(0, "agent-a", "food", amount, 0, 0)
+
+
+@pytest.mark.parametrize("amount", [True, Decimal("1.0"), NumericSubclass(1.0)])
+def test_visual_harvest_rejects_non_builtin_numeric_type(amount: object) -> None:
+    with pytest.raises(TypeError, match="built-in int or float"):
+        VisualHarvestEvent(0, "agent-a", "food", amount, 0, 0)
+
+
+def test_recent_events_are_a_bounded_detached_tail() -> None:
+    simulation = visual_simulation()
+    simulation.log.events.extend(
+        HarvestEvent(tick, "alpha", Resource.WATER, 1.0, (0, 0)) for tick in range(100)
+    )
+
+    snapshot = VisualSnapshot.from_simulation(simulation)
+
+    assert len(snapshot.recent_events) == 75
+    assert snapshot.recent_events[0].tick == 25
+    assert snapshot.recent_events[-1].tick == 99
+    simulation.log.events.clear()
+    assert len(snapshot.recent_events) == 75
