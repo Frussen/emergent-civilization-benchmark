@@ -220,3 +220,8 @@ __marimo__/
 # ECB experiment output
 runs/
 experiments/m0_baseline/generated/
+
+# Visual frontend generated files
+visual/node_modules/
+visual/dist/
+visual/*.tsbuildinfo
