@@ -34,3 +34,19 @@ Run the test suite and linter with:
 make test
 make lint
 ```
+
+## Running M0 experiments
+
+Run a reproducible headless experiment with either the random baseline or the
+oracle survival control:
+
+```sh
+ecb-run --policy random --seed 0 --ticks 2000 --output runs/random_seed_0
+ecb-run --policy oracle --seed 0 --ticks 2000 --output runs/oracle_seed_0
+```
+
+The equivalent module interface is `python -m ecb.runner` with the same
+arguments. Each output directory contains run metadata, per-tick metrics,
+chronological events, and the resolved actions needed for physical replay.
+Inventory columns `total_alive_agent_food` and `total_alive_agent_water` sum
+stored inventory over living agents only.

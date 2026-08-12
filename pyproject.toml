@@ -11,6 +11,9 @@ requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = []
 
+[project.scripts]
+ecb-run = "ecb.runner:main"
+
 [project.optional-dependencies]
 dev = [
     "hypothesis>=6",
